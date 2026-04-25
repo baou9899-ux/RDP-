@@ -28,7 +28,6 @@ jobs:
           Write-Host "🕒 Thời gian đăng ký: ${{ github.event.inputs.duration }}" -ForegroundColor Magenta
           Write-Host ""
           
-          # Hiệu ứng loading
           $frames = @('⣾', '⣽', '⣻', '⢿', '⡿', '⣟', '⣯', '⣷')
           for($i=0; $i -lt 10; $i++) {
               Write-Host "`r🚀 Đang khởi tạo hệ thống... $($frames[$i % 8])" -NoNewline -ForegroundColor Blue
@@ -184,72 +183,78 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
+          # FIX: Set encoding UTF-8
+          [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+          $OutputEncoding = [System.Text.Encoding]::UTF8
+
           Write-Host ""
           Write-Host "📱 ĐANG GỬI THÔNG TIN QUA TELEGRAM..." -ForegroundColor Yellow
-          
+
+          # FIX: Debug kiểm tra biến env
+          Write-Host "DEBUG IP: '$env:TAILSCALE_IP'" -ForegroundColor Magenta
+          Write-Host "DEBUG TOKEN length: $($env:TELEGRAM_BOT_TOKEN.Length)" -ForegroundColor Magenta
+          Write-Host "DEBUG CHAT_ID: '$env:TELEGRAM_CHAT_ID'" -ForegroundColor Magenta
+
           $matKhau = Get-Content $env:TEMP\rdp_password.txt -ErrorAction SilentlyContinue
           if (-not $matKhau) { $matKhau = "Error Reading Pass" }
-          
+
           $durationInput = "${{ github.event.inputs.duration }}"
           switch ($durationInput) {
-              "1h" { $displayTime = "1 giờ" }
-              "3h" { $displayTime = "3 giờ" }
-              "5h40m" { $displayTime = "5 giờ 40 phút" }
+              "1h"    { $displayTime = "1 gio" }
+              "3h"    { $displayTime = "3 gio" }
+              "5h40m" { $displayTime = "5 gio 40 phut" }
               Default { $displayTime = $durationInput }
           }
-          
+
           $timeZone = [System.TimeZoneInfo]::FindSystemTimeZoneById("SE Asia Standard Time")
           $thoiGianBatDau = [System.TimeZoneInfo]::ConvertTimeFromUtc((Get-Date).ToUniversalTime(), $timeZone)
-          
-          # HERE-STRING phải được căn lề chính xác
+
+          # FIX: Here-string dấu "@ phải ở đầu dòng, không indent
+          # FIX: Dùng HTML thay Markdown để tránh lỗi ký tự đặc biệt
+          $ip       = $env:TAILSCALE_IP
+          $chatId   = $env:TELEGRAM_CHAT_ID
+          $token    = $env:TELEGRAM_BOT_TOKEN
+          $tgUrl    = "https://api.telegram.org/bot$token/sendMessage"
+          $thoiGian = $thoiGianBatDau.ToString('HH:mm:ss dd/MM/yyyy')
+
           $message = @"
-          🎉 *RDP SERVER ĐÃ SẴN SÀNG!*
+🎉 RDP SERVER DA SAN SANG!
 
-          ━━━━━━━━━━━━━━━━━━━━
-          📋 *THÔNG TIN KẾT NỐI*
-          ━━━━━━━━━━━━━━━━━━━━
+📋 THONG TIN KET NOI
+🌐 IP: $ip
+👤 User: AISTV-PREMIUM
+🔐 Pass: $matKhau
+📍 Port: 3389
 
-          🌐 *IP:* ``$env:TAILSCALE_IP``
-          👤 *User:* ``AISTV-PREMIUM``
-          🔐 *Pass:* ``$matKhau``
-          📍 *Port:* ``3389``
+⏰ THOI GIAN
+⏱️ Thoi luong: $displayTime
+🕐 Bat dau: $thoiGian
 
-          ━━━━━━━━━━━━━━━━━━━━
-          ⏰ *THỜI GIAN*
-          ━━━━━━━━━━━━━━━━━━━━
+💡 HUONG DAN
+1. Mo Remote Desktop Connection
+2. Nhap IP: $ip
+3. User: AISTV-PREMIUM / Pass nhu tren
+4. Enjoy!
 
-          ⏱️ *Thời lượng:* $displayTime
-          🕐 *Bắt đầu:* $($thoiGianBatDau.ToString('HH:mm:ss dd/MM/yyyy'))
-
-          ━━━━━━━━━━━━━━━━━━━━
-          💡 *HƯỚNG DẪN KẾT NỐI*
-          ━━━━━━━━━━━━━━━━━━━━
-
-          1️⃣ Mở *Remote Desktop Connection*
-          2️⃣ Nhập IP: ``$env:TAILSCALE_IP``
-          3️⃣ Đăng nhập với thông tin trên
-          4️⃣ Enjoy! 🚀
-
-          ━━━━━━━━━━━━━━━━━━━━
-          ⚡ *Powered by AI STV Premium*
-          "@
+Powered by AI STV Premium
+"@
 
           try {
-              $telegramUrl = "https://api.telegram.org/bot$env:TELEGRAM_BOT_TOKEN/sendMessage"
               $body = @{
-                  chat_id = $env:TELEGRAM_CHAT_ID
-                  text = $message
-                  parse_mode = "Markdown"
-              } | ConvertTo-Json
-              
-              $response = Invoke-RestMethod -Uri $telegramUrl -Method Post -Body $body -ContentType "application/json; charset=utf-8"
+                  chat_id = $chatId
+                  text    = $message
+              } | ConvertTo-Json -Compress
+
+              $response = Invoke-RestMethod -Uri $tgUrl -Method Post -Body $body -ContentType "application/json; charset=utf-8"
+
               if ($response.ok) {
                   Write-Host "│ ✅ Đã gửi Telegram thành công!" -ForegroundColor Green
               } else {
                   Write-Host "│ ❌ Lỗi API Telegram: $($response.description)" -ForegroundColor Red
               }
           } catch {
-              Write-Host "│ ⚠️  Không gửi được Telegram (Kiểm tra Token/ID)" -ForegroundColor Yellow
+              Write-Host "│ ⚠️  Exception: $($_.Exception.Message)" -ForegroundColor Yellow
+              Write-Host "│ ⚠️  Kiểm tra lại Token và Chat ID" -ForegroundColor Yellow
           }
 
       # 6. HIỂN THỊ GIAO DIỆN
@@ -259,8 +264,8 @@ jobs:
           
           $durationInput = "${{ github.event.inputs.duration }}"
           switch ($durationInput) {
-              "1h" { $totalMinutes = 60; $displayTime = "1 giờ" }
-              "3h" { $totalMinutes = 180; $displayTime = "3 giờ" }
+              "1h"    { $totalMinutes = 60;  $displayTime = "1 giờ" }
+              "3h"    { $totalMinutes = 180; $displayTime = "3 giờ" }
               "5h40m" { $totalMinutes = 340; $displayTime = "5 giờ 40 phút" }
               Default { $totalMinutes = 340; $displayTime = "Mặc định" }
           }
@@ -271,7 +276,7 @@ jobs:
           
           Write-Host ""
           Write-Host "┌───────────────────────────────────────────┐" -ForegroundColor Cyan
-          Write-Host "│               🎉 KẾT NỐI THÀNH CÔNG!              │" -ForegroundColor Cyan
+          Write-Host "│           🎉 KẾT NỐI THÀNH CÔNG!          │" -ForegroundColor Cyan
           Write-Host "├───────────────────────────────────────────┤" -ForegroundColor Cyan
           Write-Host "│ 🌐  Địa chỉ: $env:TAILSCALE_IP" -ForegroundColor White
           Write-Host "│ 👤  Tài khoản: AISTV-PREMIUM" -ForegroundColor White
@@ -280,12 +285,6 @@ jobs:
           Write-Host "│ 🕐  Bắt đầu: $($thoiGianBatDau.ToString('HH:mm:ss'))" -ForegroundColor White
           Write-Host "│ 🕐  Kết thúc: $($thoiGianKetThuc.ToString('HH:mm:ss'))" -ForegroundColor White
           Write-Host "│ 📍  Port: 3389" -ForegroundColor White
-          Write-Host "├───────────────────────────────────────────┤" -ForegroundColor Cyan
-          Write-Host "│ 💡  Hướng dẫn:                                    │" -ForegroundColor Cyan
-          Write-Host "│    1. Mở Remote Desktop Connection                │" -ForegroundColor Yellow
-          Write-Host "│    2. Nhập: $env:TAILSCALE_IP                     │" -ForegroundColor Yellow
-          Write-Host "│    3. User: AISTV-PREMIUM | Password: trên        │" -ForegroundColor Yellow
-          Write-Host "│    4. Enjoy! 🚀                                   │" -ForegroundColor Yellow
           Write-Host "└───────────────────────────────────────────┘" -ForegroundColor Cyan
           
           echo "TOTAL_MINUTES=$totalMinutes" >> $env:GITHUB_ENV
@@ -301,7 +300,6 @@ jobs:
           Write-Host ""
           Write-Host "🔄 BẮT ĐẦU DUY TRÌ PHIÊN LÀM VIỆC..." -ForegroundColor Yellow
           
-          # Monitor Job
           $monitorScript = {
               while ($true) {
                   Start-Sleep -Seconds 60
@@ -321,7 +319,7 @@ jobs:
               $thoiGianHienTai = [System.TimeZoneInfo]::ConvertTimeFromUtc((Get-Date).ToUniversalTime(), $timeZone)
               $thoiGianConLai = $thoiGianKetThuc - $thoiGianHienTai
               
-              $gio = [math]::Max(0, [math]::Floor($thoiGianConLai.TotalHours))
+              $gio  = [math]::Max(0, [math]::Floor($thoiGianConLai.TotalHours))
               $phut = [math]::Max(0, [math]::Floor($thoiGianConLai.TotalMinutes % 60))
               $giay = [math]::Max(0, [math]::Floor($thoiGianConLai.TotalSeconds % 60))
               
